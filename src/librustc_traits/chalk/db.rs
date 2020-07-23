@@ -145,23 +145,16 @@ impl<'tcx> chalk_solve::RustIrDatabase<RustInterner<'tcx>> for RustIrDatabase<'t
             .map(|(wc, _)| wc.subst(self.tcx, bound_vars))
             .filter_map(|wc| LowerInto::<Option<chalk_ir::QuantifiedWhereClause<RustInterner<'tcx>>>>::lower_into(wc, &self.interner))
             .collect();
-        let fields = match adt_def.adt_kind() {
-            ty::AdtKind::Struct | ty::AdtKind::Union => {
-                let variant = adt_def.non_enum_variant();
-                variant
-                    .fields
-                    .iter()
-                    .map(|field| {
-                        self.tcx
-                            .type_of(field.did)
-                            .subst(self.tcx, bound_vars)
-                            .lower_into(&self.interner)
-                    })
-                    .collect()
-            }
-            // FIXME(chalk): handle enums; force_impl_for requires this
-            ty::AdtKind::Enum => vec![],
-        };
+
+        let fields = adt_def
+            .variants
+            .iter()
+            .flat_map(|variant| variant.fields.iter())
+            .map(|field| {
+                self.tcx.type_of(field.did).subst(self.tcx, bound_vars).lower_into(&self.interner)
+            })
+            .collect();
+
         let struct_datum = Arc::new(chalk_solve::rust_ir::AdtDatum {
             id: adt_id,
             binders: chalk_ir::Binders::new(
@@ -361,61 +354,6 @@ impl<'tcx> chalk_solve::RustIrDatabase<RustInterner<'tcx>> for RustIrDatabase<'t
             opaque_ty_id,
             bound: chalk_ir::Binders::new(chalk_ir::VariableKinds::new(&self.interner), value),
         })
-    }
-
-    /// Since Chalk can't handle all Rust types currently, we have to handle
-    /// some specially for now. Over time, these `Some` returns will change to
-    /// `None` and eventually this function will be removed.
-    fn force_impl_for(
-        &self,
-        well_known: chalk_solve::rust_ir::WellKnownTrait,
-        ty: &chalk_ir::TyData<RustInterner<'tcx>>,
-    ) -> Option<bool> {
-        use chalk_ir::TyData::*;
-        match well_known {
-            chalk_solve::rust_ir::WellKnownTrait::Sized => match ty {
-                Apply(apply) => match apply.name {
-                    chalk_ir::TypeName::Adt(chalk_ir::AdtId(adt_def)) => match adt_def.adt_kind() {
-                        ty::AdtKind::Struct | ty::AdtKind::Union => None,
-                        ty::AdtKind::Enum => {
-                            let constraint = self.tcx.adt_sized_constraint(adt_def.did);
-                            if constraint.0.len() > 0 { unimplemented!() } else { Some(true) }
-                        }
-                    },
-                    _ => None,
-                },
-                Dyn(_)
-                | Alias(_)
-                | Placeholder(_)
-                | Function(_)
-                | InferenceVar(_, _)
-                | BoundVar(_) => None,
-            },
-            chalk_solve::rust_ir::WellKnownTrait::Copy
-            | chalk_solve::rust_ir::WellKnownTrait::Clone => match ty {
-                Apply(apply) => match apply.name {
-                    chalk_ir::TypeName::Adt(chalk_ir::AdtId(adt_def)) => match adt_def.adt_kind() {
-                        ty::AdtKind::Struct | ty::AdtKind::Union => None,
-                        ty::AdtKind::Enum => {
-                            let constraint = self.tcx.adt_sized_constraint(adt_def.did);
-                            if constraint.0.len() > 0 { unimplemented!() } else { Some(true) }
-                        }
-                    },
-                    _ => None,
-                },
-                Dyn(_)
-                | Alias(_)
-                | Placeholder(_)
-                | Function(_)
-                | InferenceVar(_, _)
-                | BoundVar(_) => None,
-            },
-            chalk_solve::rust_ir::WellKnownTrait::Drop => None,
-            chalk_solve::rust_ir::WellKnownTrait::Fn => None,
-            chalk_solve::rust_ir::WellKnownTrait::FnMut => None,
-            chalk_solve::rust_ir::WellKnownTrait::FnOnce => None,
-            chalk_solve::rust_ir::WellKnownTrait::Unsize => None,
-        }
     }
 
     fn program_clauses_for_env(
