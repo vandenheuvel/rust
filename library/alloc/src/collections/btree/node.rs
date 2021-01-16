@@ -40,7 +40,7 @@ use core::slice::SliceIndex;
 use crate::alloc::{Allocator, Global, Layout};
 use crate::boxed::Box;
 
-const B: usize = 6;
+const B: usize = 10;
 pub const CAPACITY: usize = 2 * B - 1;
 pub const MIN_LEN_AFTER_SPLIT: usize = B - 1;
 const KV_IDX_CENTER: usize = B - 1;
@@ -79,6 +79,10 @@ impl<K, V> LeafNode<K, V> {
             parent_idx: MaybeUninit::uninit(),
             len: 0,
         }
+    }
+
+    unsafe fn keys_as_slice(&self) -> &[K] {
+        unsafe { MaybeUninit::slice_assume_init_ref(&self.keys) }
     }
 }
 
@@ -321,6 +325,10 @@ impl<BorrowType, K, V, Type> NodeRef<BorrowType, K, V, Type> {
     /// the tree extends above the node.
     pub fn height(&self) -> usize {
         self.height
+    }
+
+    pub unsafe fn keys_as_slice(&self) -> &[K] {
+        unsafe { self.node.as_ref().keys_as_slice() }
     }
 
     /// Temporarily takes out another, immutable reference to the same node.

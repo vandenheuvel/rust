@@ -1,5 +1,4 @@
 use core::borrow::Borrow;
-use core::cmp::Ordering;
 
 use super::node::{marker, ForceResult::*, Handle, NodeRef};
 
@@ -54,7 +53,7 @@ where
     Q: Ord,
     K: Borrow<Q>,
 {
-    match search_linear(&node, key) {
+    match search_binary(&node, key) {
         (idx, true) => Found(unsafe { Handle::new_kv(node, idx) }),
         (idx, false) => GoDown(unsafe { Handle::new_edge(node, idx) }),
     }
@@ -65,7 +64,7 @@ where
 ///
 /// The result is meaningful only if the tree is ordered by key, like the tree
 /// in a `BTreeMap` is.
-fn search_linear<BorrowType, K, V, Type, Q: ?Sized>(
+fn search_binary<BorrowType, K, V, Type, Q: ?Sized>(
     node: &NodeRef<BorrowType, K, V, Type>,
     key: &Q,
 ) -> (usize, bool)
@@ -74,16 +73,8 @@ where
     K: Borrow<Q>,
 {
     // This function is defined over all borrow types (immutable, mutable, owned).
-    // Using `keys_at()` is fine here even if BorrowType is mutable, as all we return
-    // is an index -- not a reference.
-    let len = node.len();
-    for i in 0..len {
-        let k = unsafe { node.reborrow().key_at(i) };
-        match key.cmp(k.borrow()) {
-            Ordering::Greater => {}
-            Ordering::Equal => return (i, true),
-            Ordering::Less => return (i, false),
-        }
+    match unsafe { node.reborrow().keys_as_slice() }.binary_search_by_key(&key, Borrow::borrow) {
+        Ok(i) => (i, true),
+        Err(i) => (i, false),
     }
-    (len, false)
 }
